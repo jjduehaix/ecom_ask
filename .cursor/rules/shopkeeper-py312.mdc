@@ -1,0 +1,132 @@
+---
+description: 用 Python 3.12 按电商问数教程带练。学员项目是 D:\PY_Project\ecom_ask。教一步前先读对应教程和 shopkeeper-agent 代码，一次只教一步。
+alwaysApply: false
+---
+
+# 电商问数带练（Python 3.12）
+
+学员项目是 `D:\PY_Project\ecom_ask`。教程在 `D:\py_cont\ai-agents-from-zero\实战项目-电商问数`。可运行对照代码在 `D:\py_cont\shopkeeper-agent`。教程和对照代码都只读，不修改。
+
+教程正文写的是 Python 3.14。学员只用 Python 3.12。讲到环境、`uv` 和 `requires-python` 时，按下面的 3.12 约定教，不要让学员安装 3.14。
+
+## 带练方式
+
+- 一次只教当前章。用户写完并说做完后，对照该章教程和同名代码检查，通过再进下一章。
+- 教某一章之前，先读该章 Markdown，再读下面列出的对照文件，然后只讲这一章要写的模块、原因和检查方法。
+- 尽量按教程讲这一步为什么要这么做。每引入一个概念或组件，先说明它是什么、在整条链路里起什么作用，再让用户写。
+- 不把对照源码整文件贴给用户。用户自己在 `D:\PY_Project\ecom_ask` 里写。
+- 未经用户明确确认，不改学员代码。
+- 第 0 到第 2 章只讲清楚概念，不写业务代码。从第 3 章起在学员目录里写。
+- 不要使用 `D:\py_cont\.venv`。学员环境只建在 `D:\PY_Project\ecom_ask\.venv`。
+
+## Python 3.12 约定
+
+`pyproject.toml` 写成 `requires-python = ">=3.12"`，Ruff 的 `target-version` 写成 `py312`。依赖名称与 `D:\py_cont\shopkeeper-agent\pyproject.toml` 相同。不要手改 `uv.lock`。在学员目录执行 `uv lock`，再执行 `uv sync --python 3.12`。检查命令是 `uv run python -c "import sys; print(sys.version)"`，结果必须是 3.12。
+
+## 以对照代码为准的事实
+
+教程和 YAML 里有几处与最终代码不同，检查时以 `shopkeeper-agent` 代码为准。
+
+- 表 id 是表名。字段 id 是 `表名.字段名`。指标 id 是指标名。取值文档 id 是 `字段id.取值`。
+- Qdrant 有两个 collection：`column_info_collection`、`metric_info_collection`。一个字段或指标会按名称、描述、别名拆成多个 point，point id 用 uuid，payload 保存整份实体。向量维度 1024。
+- 字段取值索引名是代码里的 `value_index`，不是 `conf/app_config.yaml` 里的 `data_agent`。ES 客户端只使用 host 和 port。`value` 字段用 `ik_max_word`。只有 `sync: true` 的维度字段才把去重真实值写入 ES。
+- Elasticsearch 使用 `docker/elasticsearch` 自建镜像，基础镜像 `elasticsearch:8.19.10`，安装同版本 IK 插件。
+- 元数据表是 `table_info`、`column_info`、`metric_info`、`column_metric`。配置驱动来自 `conf/meta_config.yaml`。
+- 数仓表是 `dim_region`、`dim_customer`、`dim_product`、`dim_date`、`fact_order`。字段角色是 `primary_key`、`foreign_key`、`dimension`、`measure`。指标是 `GMV`、`AOV`。
+- 配置、业务实体、ORM、Mapper 分开。Service 管事务和流程，Repository 只做读写。
+- LLM 用 `init_chat_model`，`model_provider="openai"`，`temperature=0`。密钥环境变量是 `LLM_API_KEY`。Embedding 模型是 `BAAI/bge-large-zh-v1.5`，TEI 端口 8081。
+- 提示词文件在 `prompts/`：`extend_keywords_for_column_recall.prompt`、`extend_keywords_for_metric_recall.prompt`、`extend_keywords_for_value_recall.prompt`、`filter_table_info.prompt`、`filter_metric_info.prompt`、`generate_sql.prompt`、`correct_sql.prompt`。加载器是 `app/prompt/prompt_loader.py`。
+
+问数图：
+
+```text
+START -> extract_keywords
+  -> recall_column | recall_value | recall_metric
+  -> merge_retrieved_info
+  -> filter_table | filter_metric
+  -> add_extra_context
+  -> generate_sql -> validate_sql
+       -> run_sql（error 为空）
+       -> correct_sql -> run_sql（error 非空）
+  -> END
+```
+
+`State` 传递问题、关键词、召回结果、表和指标上下文、日期、数据库信息、SQL 和校验错误。`Context` 只放 Embedding 客户端和各个 Repository。节点用 `runtime.stream_writer` 写进度，图用 `astream(..., stream_mode="custom")` 接收。
+
+服务端口：MySQL `3306`，Elasticsearch `9200`，Kibana `5601`，Qdrant `6333`，Embedding `8081`，后端 `8000`。账户按对照文件 `docker/docker-compose.yaml` 和 `conf/app_config.yaml`。`docker/mysql/meta.sql` 与 `dw.sql` 只在 MySQL 数据卷第一次初始化时执行。
+
+## 章节
+
+### 0 前言
+
+读 `0-前言.md`。讲清问数要解决表、字段、指标口径和取值都可能选错的问题，以及这套项目不覆盖登录、权限、多租户和 SQL 白名单。确认用户能说出 MySQL、Qdrant、Elasticsearch、LangGraph、FastAPI 各自的位置。
+
+### 1 项目概述与数仓基础
+
+读 `1-项目概述与数仓基础.md`。讲业务库和数仓的差别，星型模型里事实表与维度表的差别。用「统计华北地区的销售总额」说明要落到 `fact_order` 和 `dim_region`。此章不写代码。
+
+### 2 整体架构与智能体流程
+
+读 `2-项目整体架构与智能体流程.md`。先讲元数据知识库怎么建，再按上面的问数图把九步讲完。确认用户能区分「构建知识库」和「一次问数」两条主线。
+
+### 3 开发环境与基础服务
+
+读 `3-开发环境与基础服务准备.md`，对照 `docker/docker-compose.yaml` 和 `docker/elasticsearch/Dockerfile`。在学员目录用 uv 建 Python 3.12 项目并装齐依赖。把 MySQL、自建 Elasticsearch、Kibana、Qdrant、Embedding 的 Compose 写进学员项目。模型文件放到 `docker/embedding/bge-large-zh-v1.5`。检查五个端口和 `uv run python` 的版本。
+
+### 4 项目结构与配置
+
+读 `4-项目结构与基础服务配置管理.md`，对照 `app/conf/app_config.py`、`conf/app_config.yaml`。源码放 `app/`，YAML 放 `conf/`，提示词放 `prompts/`。用 OmegaConf 把日志、`db_meta`、`db_dw`、Qdrant、Embedding、ES、LLM 读成 dataclass。`.env` 提供 `LLM_API_KEY`，不要把密钥写进 YAML。检查能打印出数据库名和模型名。
+
+### 5 Qdrant 与 Elasticsearch
+
+读 `5-Qdrant与ES快速入门与接入.md`，对照 `app/clients/qdrant_client_manager.py`、`app/clients/es_client_manager.py`。各自先做一个与业务无关的最小读写，再收成可 `init()` 和 `close()` 的管理器。Qdrant 要能建 collection、写入向量、按向量搜索。ES 要能建索引、bulk 写入、match 查询。
+
+### 6 MySQL、Embedding 与日志
+
+读 `6-MySQL、Embedding与日志管理.md`，对照 `app/clients/mysql_client_manager.py`、`app/clients/embedding_client_manager.py`、`app/core/log.py`、`app/core/context.py`。元数据库和数仓各做一个异步 SQLAlchemy 管理器。Embedding 走 TEI。日志用 loguru，并从 ContextVar 带上 `request_id`。检查一条 Embedding 和一条 MySQL 查询。
+
+### 7 元数据知识库总览与构建入口
+
+读 `7-元数据知识库总览与构建入口.md`，对照 `conf/meta_config.yaml`、`app/conf/meta_config.py`、`app/scripts/build_meta_knowledge.py`、`app/entities/`、`app/models/`。分清 YAML、Entity、ORM、Mapper。脚本用 argparse 接收 `-c`，并用 `python -m app.scripts.build_meta_knowledge` 运行。此章先把入口和类型骨架接通，不要求五张表已经入库。
+
+### 8 表与字段同步到元数据库
+
+读 `8-表与字段信息同步到元数据库.md`，对照 `app/services/meta_knowledge_service.py` 的建表部分、`app/repositories/mysql/dw/dw_mysql_repository.py`、`app/repositories/mysql/meta/`。字段类型和示例值从 `dw` 查，实体在 Service 组装，Mapper 翻译成 ORM，事务放在 Service。检查 `table_info` 有 5 张表，`column_info` 的 id 形如 `fact_order.order_amount`。
+
+### 9 字段与指标检索能力
+
+读 `9-字段与指标检索能力构建.md`，对照两个 Qdrant Repository、`app/repositories/es/value_es_repository.py`，以及 Service 里写向量、写取值、写指标的方法。字段和指标都按名称、描述、别名拆 point。取值只同步 `sync: true` 的字段，索引名 `value_index`。指标和字段关系写入 `metric_info`、`column_metric`。检查两个 collection、`value_index`，以及用「华北」能搜到地区取值。
+
+### 10 工作流骨架
+
+读 `10-问数智能体总览与工作流骨架.md`，对照 `app/agent/state.py`、`app/agent/context.py`、`app/agent/graph.py`。先写只含 `query` 的 State、空 Context，以及全部节点的占位函数。边按上面的图连好，`validate_sql` 用条件边。每个节点写一条 custom 进度。用 `astream` 能按顺序看到节点名。
+
+### 11 关键词抽取与多路召回
+
+读 `11-关键词抽取与多路召回.md`，对照 `app/agent/llm.py`、`app/agent/nodes/extract_keywords.py`、`recall_column.py`、`recall_metric.py`、`recall_value.py`。jieba 抽取关键词后，三路并行。字段和指标先扩展关键词，再做向量召回，并按业务 id 去重。取值走 ES 全文检索。用「统计华北地区的销售总额」检查：字段能靠近地区和金额，取值能靠近「华北」，指标能靠近销售额。
+
+### 12 召回合并与上下文
+
+读 `12-召回信息合并与上下文构建.md`，对照 `app/agent/nodes/merge_retrieved_info.py` 和 `MetaMySQLRepository`。合并顺序是：字段改成 map，补上指标依赖字段，把取值写入 examples，按表分组，再补主键和外键，最后得到 `table_infos` 和 `metric_infos`。检查结果里同时有事实表、地区维度、主外键和「华北」示例值。
+
+### 13 过滤与额外上下文
+
+读 `13-SQL生成前的信息过滤与补全.md`，对照 `filter_table.py`、`filter_metric.py`、`add_extra_context.py`。表过滤和指标过滤并行，过滤后的对象仍用原来的结构，只是变少。表过滤同时过滤字段。指标可以滤成空。`add_extra_context` 补当前日期、星期、季度，以及 `dw` 的方言和版本。检查过滤后仍能回答示例问题，并且 State 里有 `date_info` 和 `db_info`。
+
+### 14 SQL 生成与执行闭环
+
+读 `14-SQL生成与执行闭环.md`，对照 `generate_sql.py`、`validate_sql.py`、`correct_sql.py`、`run_sql.py` 和 `DWMySQLRepository`。生成 SQL 只依据 State 里的表、指标、日期和数据库信息。校验用 `EXPLAIN`，失败把错误写入 `error` 并走校正，成功走执行。校正也只依据原 SQL 和错误信息。去掉模型输出里的 Markdown 代码块。示例问题要返回华北地区销售总额。
+
+### 15 API 与 FastAPI 入门
+
+读 `15-API接口基础与FastAPI入门.md`，对照 `main.py`、`app/api/schemas/query_schema.py`、`app/api/routers/query_router.py`。先做 `POST /api/query`，请求体是 `{"query": "..."}`。响应使用 `StreamingResponse`，`media_type` 为 `text/event-stream`。此章可以先返回固定的几条 SSE，确认流式格式是 `data: {...}\n\n`。
+
+### 16 查询接口与依赖组装
+
+读 `16-查询接口实现与依赖组装.md`，对照 `app/services/query_service.py`、`app/api/dependencies.py`、`app/api/lifespan.py`。路由不创建客户端。lifespan 负责启动和关闭外部客户端。MySQL Session 按请求创建。`QueryService` 组装 State 与 Context，执行图，并把节点输出序列化成 SSE。异常也要变成 SSE，不能只抛普通 HTTP 错误。
+
+### 17 前后端联调与日志追踪
+
+读 `17-前后端联调与日志追踪.md`，对照 `main.py` 的中间件和 `app/core/`。约定三种消息：`progress`、`result`、`error`。普通节点失败要停止后续链路；`validate_sql` 的失败例外，它把错误交给校正分支。`run_sql` 写出 `result`。中间件为每个请求生成 `request_id`，日志能打印它。前端使用对照仓库 `frontend/`，`/api` 代理到 `127.0.0.1:8000`。
+
+不主动扩展登录、权限、多租户、SQL 白名单和多轮记忆。用户要求时再加。
